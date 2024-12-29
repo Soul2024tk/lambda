@@ -1,4 +1,4 @@
-from typing import Any, Callable, TypeVar, Sequence, Optional, Union, Type
+from typing import Any, Callable, TypeVar, Sequence, Optional, Union, Type, Tuple
 from functools import reduce, wraps
 import inspect
 
@@ -823,3 +823,382 @@ class LambdaBuilder:
             
             return wrapper
         return decorator 
+
+    @staticmethod
+    def chainable_lambda() -> Callable:
+        """支持链式调用的lambda装饰器，允许lambda()()模式
+        
+        Returns:
+            支持链式调用的装饰器
+            
+        Example:
+            >>> @chainable_lambda()
+            >>> def create_multiplier(x):
+            >>>     return lambda y: x * y
+            >>> 
+            >>> double = create_multiplier(2)
+            >>> result = double(3)  # 返回6
+        """
+        def decorator(func: Callable) -> Callable:
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                result = func(*args, **kwargs)
+                if callable(result):
+                    # 为返回的lambda添加链式调用支持
+                    @wraps(result)
+                    def chain_wrapper(*chain_args, **chain_kwargs):
+                        chain_result = result(*chain_args, **chain_kwargs)
+                        # 支持继续链式调用
+                        if callable(chain_result):
+                            return chain_wrapper(chain_result)
+                        return chain_result
+                    return chain_wrapper
+                return result
+            return wrapper
+        return decorator
+
+    @staticmethod
+    def curried_lambda() -> Callable:
+        """支持自动柯里化的lambda装饰器
+        
+        Returns:
+            支持柯里化的装饰器
+            
+        Example:
+            >>> @curried_lambda()
+            >>> def add(x, y, z):
+            >>>     return x + y + z
+            >>> 
+            >>> add(1)(2)(3)  # 返回6
+        """
+        def decorator(func: Callable) -> Callable:
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                if len(args) + len(kwargs) >= func.__code__.co_argcount:
+                    return func(*args, **kwargs)
+                return lambda *a, **kw: wrapper(*(args + a), **{**kwargs, **kw})
+            return wrapper
+        return decorator
+
+    @staticmethod
+    def composable_lambda() -> Callable:
+        """支持函数组合的lambda装饰器
+        
+        Returns:
+            支持组合的装饰器
+            
+        Example:
+            >>> @composable_lambda()
+            >>> def double(x):
+            >>>     return x * 2
+            >>> 
+            >>> @composable_lambda()
+            >>> def add_one(x):
+            >>>     return x + 1
+            >>> 
+            >>> result = double >> add_one  # 创建新的组合函数
+            >>> result(3)  # 返回7
+        """
+        def decorator(func: Callable) -> Callable:
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                return func(*args, **kwargs)
+            
+            def compose_right(self, other):
+                """支持 f >> g 语法"""
+                return lambda *args, **kwargs: other(self(*args, **kwargs))
+            
+            def compose_left(self, other):
+                """支持 f << g 语法"""
+                return lambda *args, **kwargs: self(other(*args, **kwargs))
+            
+            wrapper.__rshift__ = compose_right
+            wrapper.__lshift__ = compose_left
+            return wrapper
+        return decorator
+
+    @staticmethod
+    def pipeline_lambda() -> Callable:
+        """支持数据流管道的lambda装饰器
+        
+        Returns:
+            支持管道操作的装饰器
+            
+        Example:
+            >>> @pipeline_lambda()
+            >>> def process_data():
+            >>>     return (
+            >>>         lambda x: x * 2,
+            >>>         lambda x: x + 1,
+            >>>         lambda x: str(x)
+            >>>     )
+            >>> 
+            >>> pipeline = process_data()
+            >>> result = pipeline(3)  # 返回"7"
+        """
+        def decorator(func: Callable) -> Callable:
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                pipeline_funcs = func(*args, **kwargs)
+                
+                def execute_pipeline(data):
+                    result = data
+                    for pipe_func in pipeline_funcs:
+                        result = pipe_func(result)
+                    return result
+                
+                return execute_pipeline
+            return wrapper
+        return decorator
+
+    @staticmethod
+    def recursive_lambda() -> Callable:
+        """支持递归调用的lambda装饰器
+        
+        Returns:
+            支持递归的装饰器
+            
+        Example:
+            >>> @recursive_lambda()
+            >>> def factorial(n):
+            >>>     return lambda: 1 if n <= 1 else n * factorial(n-1)()
+        """
+        def decorator(func: Callable) -> Callable:
+            # 使用Y组合子实现递归
+            def Y(f):
+                return (lambda x: x(x))(lambda y: f(lambda *args: y(y)(*args)))
+            
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                return Y(lambda f: func(*args, **kwargs))()
+            return wrapper
+        return decorator
+
+    @staticmethod
+    def monadic_lambda() -> Callable:
+        """支持单子操作的lambda装饰器
+        
+        Returns:
+            支持单子操作的装饰器
+            
+        Example:
+            >>> @monadic_lambda()
+            >>> def safe_divide(x, y):
+            >>>     return None if y == 0 else x / y
+            >>> 
+            >>> result = safe_divide(10, 2).then(lambda x: x * 2)
+            >>> # 返回Maybe(10)
+        """
+        class Maybe:
+            def __init__(self, value):
+                self.value = value
+            
+            def then(self, func):
+                if self.value is None:
+                    return Maybe(None)
+                try:
+                    return Maybe(func(self.value))
+                except:
+                    return Maybe(None)
+            
+            def get_or_else(self, default):
+                return self.value if self.value is not None else default
+        
+        def decorator(func: Callable) -> Callable:
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                return Maybe(func(*args, **kwargs))
+            return wrapper
+        return decorator 
+
+    @staticmethod
+    def λ(expr: str) -> Callable:
+        """超简洁的lambda表达式创建器
+        
+        Args:
+            expr: lambda表达式字符串
+            
+        Returns:
+            编译后的lambda函数
+            
+        Example:
+            >>> f = λ("x -> x * 2")
+            >>> g = λ("x, y -> x + y")
+        """
+        try:
+            # 解析表达式
+            parts = expr.split("->")
+            args = [arg.strip() for arg in parts[0].split(",")]
+            body = parts[1].strip()
+            
+            # 构建lambda字符串
+            lambda_str = f"lambda {', '.join(args)}: {body}"
+            
+            # 编译并返回函数
+            return eval(lambda_str)
+        except Exception as e:
+            raise SyntaxError(f"Invalid lambda expression: {expr}") from e
+
+    @staticmethod
+    def pipe(*funcs: Union[Callable, str]) -> Callable:
+        """简化的函数管道
+        
+        Args:
+            *funcs: 函数或lambda表达式字符串
+            
+        Returns:
+            组合后的函数
+            
+        Example:
+            >>> process = pipe(
+            >>>     "x -> x * 2",
+            >>>     "x -> x + 1",
+            >>>     str
+            >>> )
+        """
+        compiled_funcs = []
+        for f in funcs:
+            if isinstance(f, str):
+                compiled_funcs.append(LambdaBuilder.λ(f))
+            else:
+                compiled_funcs.append(f)
+        
+        def piped(x):
+            result = x
+            for func in compiled_funcs:
+                result = func(result)
+            return result
+        return piped
+
+    @staticmethod
+    def match(*patterns: Tuple[Callable, Callable]) -> Callable:
+        """模式匹配风格的lambda
+        
+        Args:
+            *patterns: (条件, 处理函数)元组
+            
+        Returns:
+            模式匹配函数
+            
+        Example:
+            >>> classify = match(
+            >>>     (λ("x -> x > 0"), λ("x -> 'positive'")),
+            >>>     (λ("x -> x < 0"), λ("x -> 'negative'")),
+            >>>     (λ("x -> True"), λ("x -> 'zero'"))
+            >>> )
+        """
+        def matcher(x):
+            for cond, func in patterns:
+                if cond(x):
+                    return func(x)
+            return None
+        return matcher
+
+    @staticmethod
+    def chain(init_value: Any) -> 'ChainBuilder':
+        """链式操作构建器
+        
+        Args:
+            init_value: 初始值
+            
+        Returns:
+            链式构建器对象
+            
+        Example:
+            >>> result = chain(5).map("x -> x * 2").filter("x -> x > 5").value()
+        """
+        class ChainBuilder:
+            def __init__(self, value):
+                self._value = value
+            
+            def map(self, func):
+                if isinstance(func, str):
+                    func = LambdaBuilder.λ(func)
+                self._value = func(self._value)
+                return self
+            
+            def filter(self, pred):
+                if isinstance(pred, str):
+                    pred = LambdaBuilder.λ(pred)
+                if not pred(self._value):
+                    self._value = None
+                return self
+            
+            def value(self):
+                return self._value
+        
+        return ChainBuilder(init_value)
+
+    @staticmethod
+    def infix(func: Callable) -> 'InfixWrapper':
+        """中缀表达式支持
+        
+        Args:
+            func: 要转换为中缀形式的函数
+            
+        Returns:
+            支持中缀调用的包装器
+            
+        Example:
+            >>> add = infix(lambda x, y: x + y)
+            >>> 1 |add| 2  # 返回3
+        """
+        class InfixWrapper:
+            def __init__(self, func):
+                self.func = func
+            
+            def __ror__(self, other):
+                return InfixWrapper(lambda x: self.func(other, x))
+            
+            def __or__(self, other):
+                return self.func(other)
+        
+        return InfixWrapper(func)
+
+    @staticmethod
+    def quick(template: str) -> Callable:
+        """快速lambda生成器
+        
+        Args:
+            template: 简化的lambda模板
+            
+        Returns:
+            生成的函数
+            
+        Example:
+            >>> double = quick("* 2")  # 等价于 lambda x: x * 2
+            >>> add = quick("x y -> x + y")  # 等价于 lambda x, y: x + y
+        """
+        if "->" not in template:
+            # 单参数简化形式
+            return eval(f"lambda x: x {template}")
+        else:
+            # 完整形式
+            return LambdaBuilder.λ(template)
+
+    @staticmethod
+    def compose_simple(*funcs: Union[Callable, str]) -> Callable:
+        """简化的函数组合
+        
+        Args:
+            *funcs: 函数或lambda表达式字符串
+            
+        Returns:
+            组合后的函数
+            
+        Example:
+            >>> f = compose_simple("* 2", "+ 1", str)
+        """
+        compiled_funcs = []
+        for f in funcs:
+            if isinstance(f, str):
+                compiled_funcs.append(LambdaBuilder.quick(f))
+            else:
+                compiled_funcs.append(f)
+        
+        def composed(x):
+            result = x
+            for func in reversed(compiled_funcs):
+                result = func(result)
+            return result
+        return composed 
